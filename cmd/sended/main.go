@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/smtp"
 
-	"github.com/dipress/evostok/internal/sender"
+	"github.com/dipress/evostok/internal/http"
+	"github.com/dipress/evostok/internal/send"
+	smtpCli "github.com/dipress/evostok/internal/smtp"
 	"github.com/pkg/errors"
 )
 
@@ -30,30 +32,28 @@ func main() {
 		*secret,
 		*id,
 	)
-	mail := sender.Mail{}
 
-	mail.SendlerID = "example@example.com"
-	mail.ToIDs = []string{"example@example"}
-	mail.Subject = "My subject"
+	sendlerID := "example@example.com"
+	to := []string{"example@example.com"}
 
-	server := sender.SMTPServer{
-		Host:     *host,
-		Port:     *port,
-		Password: *password,
-	}
-
-	client, err := conn(server.Host, server.Port, server.Password)
-
+	client, err := conn(*host, *port, *password)
 	if err != nil {
 		log.Fatalf("open smtp client: %s", err)
 	}
-
 	defer client.Quit()
 
-	send := sender.New(client, &server, url)
+	auth := smtp.PlainAuth("", sendlerID, *password, *host+":"+*port)
 
-	if err := send.Send(&mail); err != nil {
-		log.Fatal(err)
+	if err := client.Auth(auth); err != nil {
+		log.Fatalf("smtp authenticate failed: %v", err)
+	}
+
+	g := http.NewBalance()
+	s := smtpCli.New(client, sendlerID)
+
+	srv := send.NewService(g, s)
+	if err := srv.Deliver(url, to); err != nil {
+		log.Fatalf("failed to send: %v", err)
 	}
 }
 
